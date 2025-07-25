@@ -5,7 +5,7 @@
 import os
 from dotenv import load_dotenv
 from qwen_agent.agents import Assistant
-from tools import GenerateMonthlyReport, GenerateChangelog
+from tools import GenerateMonthlyReport, GenerateChangelog, GenerateIssueReport
 from agent_config import AgentConfig
 from report_generator import ReportGeneratorFactory
 from qwen_agent.gui import WebUI
@@ -46,6 +46,7 @@ class ReportAgent:
             },
             'generate_monthly_report_mcp',
             'generate_changelog_mcp',
+            'generate_issue_report_mcp',
         ]
 
         system_prompt = f"""
@@ -53,8 +54,9 @@ class ReportAgent:
         1. 首先你需要根据用户输入的需求，判断用户是生成月报还是changelog还是修改报告，translate 参数默认是 true
         2. 如果是生成完整（并非修改）月报，你需要调用`generate_monthly_report_mcp`工具来生成月报
         3. 如果是生成完整（并非修改）changelog，你需要调用`generate_changelog_mcp`工具来生成changelog
-        4. 如果是用户让你修改报告，你需要根据用户的需求，更改生成的报告而不要调用生成报告工具.但用户没提及的部分一定不要修改。
-        5. 如果你认为调用函数的信息不全，比如用户没给年月份，是否翻译英文，你一定需要主动询问用户，直到获取到足够的信息。
+        4. 如果是生成完整（并非修改）issue报告，你需要调用`generate_issue_report_mcp`工具来生成issue报告
+        5. 如果是用户让你修改报告，你需要根据用户的需求，更改生成的报告而不要调用生成报告工具.但用户没提及的部分一定不要修改。
+        6. 如果你认为调用函数的信息不全，比如用户没给年月份，是否翻译英文，你一定需要主动询问用户，直到获取到足够的信息。
 
         示例1（这个 pr 明显不是让你生成月报，而是修改报告，不能调用generate_monthly_report_mcp和generate_changelog_mcp，应该自行分析）：
         Fix an incorrect config proper...
@@ -79,7 +81,7 @@ class ReportAgent:
             llm=llm_cfg,
             function_list=tools,
             name='github-report-agent',
-            description="我是github报告生成助手，可以生成月报和changelog！",
+            description="我是github报告生成助手，可以生成月报、changelog和issue报告！",
             system_message=system_prompt,
         )
 
@@ -172,6 +174,40 @@ class ReportAgent:
         except Exception as e:
             print(f"❌ Changelog生成失败: {str(e)}")
             return f"Changelog生成失败: {str(e)}"
+
+    def generate_issue_report(self, month: int = None, year: int = None, important_issue_list: list = None, owner: str = None, repo: str = None, translate: bool = True) -> str:
+        """
+        生成issue报告
+        """
+        print("🚀 开始生成issue报告...")
+        
+        try:
+            # 使用工厂模式创建issue报告生成器
+            generator = ReportGeneratorFactory.create_generator("issue")
+
+            # 准备参数
+            kwargs = {
+                'month': month,
+                'year': year,
+                'owner': owner,
+                'repo': repo,
+                'translate': translate
+            }
+
+            # 如果有重要Issue列表，添加到参数中
+            if important_issue_list:
+                kwargs['important_issue_list'] = important_issue_list
+
+            # 生成月报
+            report = generator.create_report(**kwargs)
+
+            print("✅ issue报告生成完成!")
+            return report
+
+        except Exception as e:
+            print(f"❌ issue报告生成失败: {str(e)}")
+            return f"issue报告生成失败: {str(e)}"
+            
 
     def terminal_interactive_mode(self):
         """交互模式 - 让用户选择生成什么类型的报告"""
@@ -363,9 +399,24 @@ class ReportAgent:
                 if config.translate:
                     print("✅ 英文报告已保存到: report.EN.md")
                 print("="*50)
-
+            elif config.choice == config.REPORT_ISSUE:
+                report = self.generate_issue_report(
+                    owner=owner,
+                    repo=repo,
+                    month=config.month,
+                    year=config.year,
+                    important_issue_list=config.important_issue_list,
+                    translate=config.translate
+                )
+                print("\n" + "="*50)
+                print("📋 Issue报告生成完成:")
+                print("="*50)
+                print("✅ 中文报告已保存到: report.md")
+                if config.translate:
+                    print("✅ 英文报告已保存到: report.EN.md")
+                print("="*50)
             else:
-                print("❌ 无效选择，请输入 1、2 或 3")
+                print("❌ 无效选择，请输入 1、2 或 3/4")
 
         except KeyboardInterrupt:
             print("\n👋 程序已退出")

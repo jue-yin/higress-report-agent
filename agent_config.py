@@ -12,7 +12,8 @@ class AgentConfig:
     # 报告类型常量
     REPORT_MONTHLY = 1
     REPORT_CHANGELOG = 2
-    EXIT = 3
+    REPORT_ISSUE = 3
+    EXIT = 4
 
     def __init__(self):
         # 基础配置
@@ -30,6 +31,7 @@ class AgentConfig:
 
         # 通用参数
         self.important_pr_list = []
+        self.important_issue_list = []
         self.translate = True
 
     @classmethod
@@ -43,8 +45,8 @@ class AgentConfig:
                             help='运行模式: 1=交互模式, 2=命令行参数模式，默认1')
 
         # 报告类型
-        parser.add_argument('--choice', type=int, choices=[cls.REPORT_MONTHLY, cls.REPORT_CHANGELOG],
-                            help='报告类型: 1=月报, 2=Changelog，默认1')
+        parser.add_argument('--choice', type=int, choices=[cls.REPORT_MONTHLY, cls.REPORT_CHANGELOG, cls.REPORT_ISSUE],
+                            help='报告类型: 1=月报, 2=Changelog, 3=Issue，默认1')
 
         # 月报相关参数
         parser.add_argument('--month', type=int, help='月份 (仅月报有效，默认当前月份)')
@@ -57,6 +59,8 @@ class AgentConfig:
         # 通用参数
         parser.add_argument('--important_prs', type=str,
                             help='重要PR编号列表，逗号分隔')
+        parser.add_argument('--important_issues', type=str,
+                            help='重要Issue编号列表，逗号分隔')
         parser.add_argument('--no_translate', action='store_true',
                             help='设置此标志将不生成英文翻译')
 
@@ -90,6 +94,14 @@ class AgentConfig:
             except ValueError:
                 print("重要PR编号格式不正确，将忽略重要PR设置")
                 config.important_pr_list = []
+
+        if args.important_issues:
+            try:
+                config.important_issue_list = [
+                    int(x.strip()) for x in args.important_issues.split(',')]
+            except ValueError:
+                print("重要Issue编号格式不正确，将忽略重要Issue设置")
+                config.important_issue_list = []
 
         config.translate = not args.no_translate
 

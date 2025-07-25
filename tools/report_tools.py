@@ -150,3 +150,79 @@ class GenerateChangelog(BaseTool):
         except Exception as e:
             print(f"❌ Changelog生成失败: {str(e)}")
             return f"Changelog生成失败: {str(e)}"
+
+
+@register_tool('generate_issue_report_mcp')
+class GenerateIssueReport(BaseTool):
+    description = '生成issue报告工具，用于根据issue列表生成issue报告。不具备修改 issue 报告的功能'
+    parameters = [
+        {
+            'name': 'month',
+            'type': 'integer',
+            'description': '月份，1-12之间的整数，默认当前月',
+            'required': True
+        },
+        {
+            'name': 'year',
+            'type': 'integer',
+            'description': '年份，4位数字，默认当前年',
+            'required': True
+        },
+        {
+            'name': 'important_issue_list',
+            'type': 'array',
+            'description': '重要Issue编号列表，数组格式',
+            'required': True
+        },
+        {
+            'name': 'owner',
+            'type': 'string',
+            'description': '仓库所有者，如alibaba',
+            'required': True
+        },
+        {
+            'name': 'repo',
+            'type': 'string',
+            'description': '仓库名称，如higress',
+            'required': True
+        },
+        {
+            'name': 'translate',
+            'type': 'boolean',
+            'description': '是否生成英文翻译，true为生成，false为不生成',
+            'required': True
+        }
+    ]
+
+    def call(self, params: Union[str, dict], **kwargs) -> str:
+        if isinstance(params, str):
+            params = json.loads(params)
+
+        print("🚀 开始生成issue报告...")
+
+        try:
+            # 使用工厂模式创建issue报告生成器
+            generator = ReportGeneratorFactory.create_generator("issue")
+
+            # 准备参数
+            kwargs = {
+                'month': params.get('month'),
+                'year': params.get('year'),
+                'owner': params.get('owner'),
+                'repo': params.get('repo'),
+                'translate': params.get('translate', True)
+            }
+
+            # 如果有重要PR列表，添加到参数中
+            if params.get('important_issue_list'):
+                kwargs['important_issue_list'] = params['important_issue_list']
+
+            # 生成月报
+            report = generator.create_report(**kwargs)
+
+            print("✅ issue报告生成完成!")
+            return report
+
+        except Exception as e:
+            print(f"❌ issue报告生成失败: {str(e)}")
+            return f"issue报告生成失败: {str(e)}"

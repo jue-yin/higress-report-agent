@@ -76,6 +76,36 @@ class IssueHelper:
         result = self._call_github_mcp_tool("list_issues", params)
         return result if isinstance(result, list) else []
 
+    def get_issue(self, owner: str, repo: str, issue_number: int) -> Dict[str, Any]:
+        """
+        获取指定Issue的详细信息
+        """
+        params = {
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number
+        }
+        result = self._call_github_mcp_tool("get_issue", params)
+        return result if isinstance(result, dict) else {}
+
+    def get_issue_comments(self, owner: str, repo: str, issue_number: int) -> List[Dict[str, Any]]:
+        """
+        获取指定Issue的评论列表
+        Args:
+            owner: 仓库所有者
+            repo: 仓库名称
+            issue_number: Issue编号
+        Returns:
+            评论列表
+        """
+        params = {
+            "owner": owner,
+            "repo": repo,
+            "issue_number": issue_number
+        }
+        result = self._call_github_mcp_tool("get_issue_comments", params)
+        return result if isinstance(result, list) else []
+
     
     def _call_github_mcp_tool(self, tool_name: str, params: Dict[str, Any]) -> Any:
         """

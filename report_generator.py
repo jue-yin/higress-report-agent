@@ -24,6 +24,14 @@ class PRType(Enum):
     REFACTOR = "refactor"
     TEST = "test"
 
+class IssueType(Enum):
+    """Issue类型枚举"""
+    FEATURE = "feature"
+    BUGFIX = "bugfix"
+    DOC = "doc"
+    REFACTOR = "refactor"
+    TEST = "test"
+    DISCUSS = "discuss"
 
 @dataclass
 class PRInfo:
@@ -39,24 +47,56 @@ class PRInfo:
     is_important: bool = False
     detailed_analysis: str = ""  # 用于存储重要PR的详细分析
 
+@dataclass
+class IssueInfo:
+    number: int
+    title: str
+    html_url: str
+    user: Dict[str, Any]
+    needed_score: int = 0 # 需求评价分数
+    highlight: str = ""  # LLM分析后的需求摘要
+    function_value: str = "" # 功能价值
+    issue_type: Optional[IssueType] = None
+    detailed_analysis: str = ""  # 详细分析
+
 
 class ReportGeneratorInterface(ABC):
     """报告生成器接口"""
     
-    @abstractmethod
     def get_pr_list(self, **kwargs) -> List[PRInfo]:
         """获取PR列表 - 不同类型的报告有不同的获取方式"""
         pass
+
+    def get_issue_list(self, **kwargs) -> List[IssueInfo]:
+        """获取Issue列表 - 不同类型的报告有不同的获取方式"""
+        pass
     
-    @abstractmethod
     def analyze_prs_with_llm(self, pr_list: List[PRInfo]) -> List[PRInfo]:
         """使用LLM分析PR列表 - 通用逻辑"""
         pass
+
+    def analyze_issues_with_llm(self, issue_list: List[IssueInfo]) -> List[IssueInfo]:
+        """使用LLM分析Issue列表 - 通用逻辑"""
+        pass
     
-    @abstractmethod
     def generate_report(self, analyzed_prs: List[PRInfo]) -> str:
         """生成报告 - 不同类型的报告有不同的格式"""
         pass
+
+    def generate_report(self, analyzed_issues: List[IssueInfo]) -> str:
+        """生成报告 - 不同类型的报告有不同的格式"""
+        pass
+
+    def _get_llm_response(self, messages: List[Dict[str, str]]) -> str:
+        """获取LLM响应"""
+        collected_responses = []
+        for response in self.llm_assistant.run(messages=messages):
+            if isinstance(response, list) and len(response) > 0:
+                for msg in response:
+                    if msg.get('role') == 'assistant' and msg.get('content'):
+                        collected_responses.append(msg.get('content', ""))
+        
+        return collected_responses[-1] if collected_responses else ""
     
     def create_report(self, **kwargs) -> str:
         self.owner = kwargs.get('owner', 'alibaba')
@@ -558,17 +598,210 @@ class BaseReportGenerator(ReportGeneratorInterface):
         }}
         """
     
-    def _get_llm_response(self, messages: List[Dict[str, str]]) -> str:
-        """获取LLM响应"""
-        collected_responses = []
-        for response in self.llm_assistant.run(messages=messages):
-            if isinstance(response, list) and len(response) > 0:
-                for msg in response:
-                    if msg.get('role') == 'assistant' and msg.get('content'):
-                        collected_responses.append(msg.get('content', ""))
-        
-        return collected_responses[-1] if collected_responses else ""
+    
 
+
+class BaseIssueReportGenerator(ReportGeneratorInterface):
+    def __init__(self):
+        self.llm_assistant = self._create_llm_assistant()
+        # 创建GitHub助手实例，避免重复创建
+        from utils.issue_helper import IssueHelper
+        self.github_helper = IssueHelper()
+    
+    def _create_llm_assistant(self) -> Assistant:
+        """创建LLM助手"""
+        llm_cfg = {
+            'model': os.getenv('MODEL_NAME'),
+            'model_server': os.getenv('MODEL_SERVER'),
+            'api_key': os.getenv('DASHSCOPE_API_KEY'),
+        }
+        return Assistant(llm=llm_cfg)
+
+    def create_report(self, **kwargs) -> str:
+        self.owner = kwargs.get('owner', 'alibaba')
+        self.repo = kwargs.get('repo', 'higress')
+
+        """模板方法 - 定义报告生成的完整流程"""
+        # 1. 获取PR列表
+        issue_list = self.get_issue_list(**kwargs)
+        
+        # 2. 使用LLM分析PR
+        analyzed_issues = self.analyze_issues_with_llm(issue_list)
+        
+        # 3. 生成报告
+        report = self.generate_report(analyzed_issues)
+        
+        # 4. 保存报告到文件
+        self.save_report_to_file(report, "report.md")
+        
+        # 5. 生成英文翻译
+        if kwargs.get('translate', True):
+            english_report = self.translate_to_english(report)
+            self.save_report_to_file(english_report, "report.EN.md")
+        
+        return report
+
+    def get_issue_list(self, **kwargs) -> List[IssueInfo]:
+        """获取Issue列表 - 子类必须重写此方法"""
+        raise NotImplementedError("子类必须实现 get_issue_list 方法")
+
+    def analyze_issues_with_llm(self, issue_list: List[IssueInfo]) -> List[IssueInfo]:
+        """用LLM分析Issue - 子类必须重写此方法"""
+        raise NotImplementedError("子类必须实现 analyze_issues_with_llm 方法")
+    
+    def _analyze_single_issue(self, issue: IssueInfo) -> IssueInfo:
+        """Issue分析 - 调用MCP工具获取Issue详细信息并分析"""
+        try:
+            # 1. 获取PR的详细信息和文件变更
+            issue_details = self._get_issue_detailed_info(issue.number)
+            if not issue_details:
+                print(f"无法获取Issue #{issue.number}的详细信息")
+                return issue
+            
+            # 2. 准备分析数据
+            issue_info = {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue_details.get("body", "")[:500] if issue_details.get("body") else "",
+                "comments": issue_details.get("comments", [])
+            }
+            
+            # 3. 准备评论摘要
+            comments_summary = self._format_comments_for_analysis(issue_info["comments"])
+            
+            # 4. 构建完整的分析请求
+            full_prompt = self._get_analysis_prompt().format(
+                issue_number=issue.number,
+                issue_title=issue.title,
+                issue_body=issue_info["body"],
+                comments_summary=comments_summary
+            )
+            
+            # 4. 使用LLM分析
+            messages = [{'role': 'user', 'content': full_prompt}]
+            response_text = self._get_llm_response(messages)
+            # 去除首尾的 ```json 或 ```
+            if response_text.strip().startswith("```json"):
+                response_text = response_text.strip()[7:]
+            if response_text.strip().endswith("```"):
+                response_text = response_text.strip()[:-3]
+            response_text = response_text.strip()
+            
+            # 5. 解析结果
+            result = json.loads(response_text)
+            issue.highlight = result.get("highlight", issue.highlight)
+            issue.issue_type = result.get("issue_type", issue.issue_type)
+            issue.detailed_analysis = result.get("detailed_analysis", issue.detailed_analysis)
+            issue.function_value = result.get("function_value", issue.function_value)
+            
+            # 6. 如果包含评分，解析评分
+            if "needed_score" in result:
+                try:
+                    issue.needed_score = int(result.get("needed_score", 0))
+                except (ValueError, TypeError):
+                    issue.needed_score = 0
+            
+            # 7. 如果是changelog，还要解析类型
+            if hasattr(self, '_parse_issue_type') and "issue_type" in result:
+                issue.issue_type = self._parse_issue_type(result.get("issue_type", "feature"))
+            
+            print(f"Issue #{issue.number}分析完成")
+            
+        except Exception as e:
+            print(f"LLM分析Issue #{issue.number}失败: {str(e)}")
+            # 设置默认值
+            issue.highlight = issue.highlight or "技术更新"
+            issue.needed_score = issue.needed_score or 50
+        
+        return issue
+
+    def _get_analysis_prompt(self) -> str:
+        """获取分析prompt - 子类必须重写此方法"""
+        raise NotImplementedError("子类必须实现 _get_analysis_prompt 方法")
+
+    def _get_issue_detailed_info(self, issue_number: int, owner: str = None, repo: str = None) -> dict:
+        """获取Issue的详细信息，评论信息"""
+        try:
+            # 使用传入的参数或默认配置
+            owner = owner or self.owner
+            repo = repo or self.repo
+            
+            # 获取Issue基本信息
+            issue_info = self.github_helper.get_issue(
+                owner=owner, 
+                repo=repo, 
+                issue_number=issue_number
+            )
+            
+            # 获取Issue评论信息
+            comments_result = self._get_issue_comments(owner, repo, issue_number, self.github_helper)
+            
+            return {
+                "body": issue_info.get("body", "") if issue_info else "",
+                "comments": comments_result
+            }
+            
+        except Exception as e:
+            print(f"获取Issue #{issue_number}详细信息失败: {str(e)}")
+            return {
+                "body": "",
+                "comments": []
+            }
+
+    def _get_issue_comments(self, owner: str, repo: str, issue_number: int, github_helper) -> List[Dict[str, str]]:
+        """获取Issue评论信息"""
+        try:
+            # 调用MCP工具获取PR评论
+            comments_data = github_helper.get_issue_comments(
+                owner=owner,
+                repo=repo,
+                issue_number=issue_number
+            )
+            
+            if not isinstance(comments_data, list):
+                return []
+            
+            # 提取评论的关键信息，限制评论数量和长度
+            comments_summary = []
+            for comment in comments_data:
+                if isinstance(comment, dict) and comment.get("body"):
+                    comment_info = {
+                        "author": comment.get("user", {}).get("login", "unknown"),
+                        "body": comment.get("body", "")[:300],  # 限制评论长度
+                        "created_at": comment.get("created_at", "")
+                    }
+                    comments_summary.append(comment_info)
+            
+            return comments_summary
+            
+        except Exception as e:
+            print(f"获取Issue #{issue_number}评论失败: {str(e)}")
+            return []
+    
+    def _format_comments_for_analysis(self, comments: List[Dict[str, str]]) -> str:
+        """格式化评论信息用于AI分析"""
+        if not comments:
+            return "暂无评论"
+        
+        formatted_comments = []
+        for i, comment in enumerate(comments):
+            formatted_comment = f"评论{i} - {comment.get('author', 'unknown')}: {comment.get('body', '')}"
+            formatted_comments.append(formatted_comment)
+        
+        return "\n".join(formatted_comments)
+
+    def _create_issue_info(self, issue_data: Dict[str, Any]) -> IssueInfo:
+        """创建IssueInfo对象的辅助方法"""
+        return IssueInfo(
+            number=issue_data.get('number', 0),
+            title=issue_data.get('title', ''),
+            html_url=issue_data.get('html_url', ''),
+            user=issue_data.get('user', {}),
+            highlight='',  # 待LLM分析
+            needed_score=0,
+            issue_type=None,
+            detailed_analysis=''
+        )
 
 class ReportGeneratorFactory:
     """报告生成器工厂类"""
@@ -582,5 +815,8 @@ class ReportGeneratorFactory:
         elif report_type.lower() == "changelog":
             from changelog_generator import ChangelogReportGenerator
             return ChangelogReportGenerator()
+        elif report_type.lower() == "issue":
+            from issue_analysis_generator import IssueAnalysisReportGenerator
+            return IssueAnalysisReportGenerator()
         else:
             raise ValueError(f"不支持的报告类型: {report_type}") 
