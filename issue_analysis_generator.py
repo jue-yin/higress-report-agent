@@ -58,10 +58,6 @@ class IssueAnalysisReportGenerator(BaseIssueReportGenerator):
                 issue_number = issue.get('number', 0)
                 issue_info = self._create_issue_info(issue)
                 issue_list.append(issue_info)
-                if len(issue_list) >= 1:
-                    break
-            if len(issue_list) >= 1:
-                break
 
             # 检查是否还需要继续获取
             if  filtered_issues:
