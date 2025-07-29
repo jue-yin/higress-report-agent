@@ -175,7 +175,7 @@ class ReportAgent:
             print(f"❌ Changelog生成失败: {str(e)}")
             return f"Changelog生成失败: {str(e)}"
 
-    def generate_issue_report(self, month: int = None, year: int = None, important_issue_list: list = None, owner: str = None, repo: str = None, translate: bool = True) -> str:
+    def generate_issue_report(self, month: int = None, year: int = None, state: str = "open", important_issue_list: list = None, owner: str = None, repo: str = None, translate: bool = True) -> str:
         """
         生成issue报告
         """
@@ -191,6 +191,7 @@ class ReportAgent:
                 'year': year,
                 'owner': owner,
                 'repo': repo,
+                'state': state,
                 'translate': translate
             }
 
@@ -405,6 +406,7 @@ class ReportAgent:
                     repo=repo,
                     month=config.month,
                     year=config.year,
+                    state=config.state,
                     important_issue_list=config.important_issue_list,
                     translate=config.translate
                 )

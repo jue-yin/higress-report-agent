@@ -25,6 +25,7 @@ class AgentConfig:
         # 月报参数
         self.month = datetime.now(timezone.utc).month
         self.year = datetime.now(timezone.utc).year
+        self.state = "open"
 
         # Changelog参数
         self.pr_num_list = []
@@ -51,6 +52,7 @@ class AgentConfig:
         # 月报相关参数
         parser.add_argument('--month', type=int, help='月份 (仅月报有效，默认当前月份)')
         parser.add_argument('--year', type=int, help='年份 (仅月报有效，默认当前年份)')
+        parser.add_argument('--state', type=str, help='Issue状态 (仅Issue有效，默认open)')
 
         # Changelog相关参数
         parser.add_argument('--pr_nums', type=str,
@@ -77,6 +79,8 @@ class AgentConfig:
             config.month = args.month
         if args.year:
             config.year = args.year
+        if args.state:
+            config.state = args.state
 
         # 设置Changelog参数
         if args.pr_nums:
