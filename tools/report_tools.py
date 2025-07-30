@@ -169,6 +169,12 @@ class GenerateIssueReport(BaseTool):
             'required': True
         },
         {
+            'name': 'state',
+            'type': 'string',
+            'description': 'Issue状态，open或closed',
+            'required': True
+        },
+        {
             'name': 'important_issue_list',
             'type': 'array',
             'description': '重要Issue编号列表，数组格式',
